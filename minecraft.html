@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>2D 마인크래프트 미니</title>
+  <style>
+    body {
+      background-color: #2a3b50; /* 하늘색 */
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      color: white;
+      font-family: sans-serif;
+      flex-direction: column;
+      overflow: hidden; /* 스크롤 방지 */
+    }
+    #gameContainer {
+      position: relative;
+    }
+    canvas {
+      border: 4px solid #fff;
+      background-color: #000; /* 캔버스 기본 배경 */
+      cursor: crosshair; /* 십자선 커서 */
+    }
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      font-size: 18px;
+      font-weight: bold;
+      pointer-events: none; /* 클릭 방지 */
+      text-shadow: 2px 2px 2px rgba(0,0,0,0.5);
+    }
+    .guide {
+      margin-top: 15px;
+      font-size: 14px;
+      color: #ccc;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="gameContainer">
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="ui">블록: <span id="blockCount">0</span></div>
+  </div>
+  <div class="guide">조작: 클릭 (블록 파괴), Shift + 클릭 (블록 설치), 우클릭 드래그 (시점 이동)</div>
+
+<script>
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const blockCountEl = document.getElementById('blockCount');
+
+  // 게임 상수 및 상태
+  const BLOCK_SIZE = 32; // 블록 한 변의 크기 (픽셀)
+  const WORLD_WIDTH = Math.floor(canvas.width / BLOCK_SIZE);
+  const WORLD_HEIGHT = Math.floor(canvas.height / BLOCK_SIZE);
+  
+  // 블록 종류 정의
+  const BLOCKS = {
+    AIR: 0,
+    DIRT: 1,
+    GRASS: 2,
+    STONE: 3,
+    COAL_ORE: 4,
+    LOG: 5
+  };
+
+  // 블록 색상 및 스타일 정의
+  const BLOCK_STYLES = {
+    [BLOCKS.DIRT]: { top: '#795548', main: '#8d6e63' }, // 흙
+    [BLOCKS.GRASS]: { top: '#4caf50', main: '#689f38' }, // 잔디
+    [BLOCKS.STONE]: { top: '#9e9e9e', main: '#bdbdbd' }, // 돌
+    [BLOCKS.COAL_ORE]: { top: '#424242', main: '#616161', speck: '#000000' }, // 석탄 원석
+    [BLOCKS.LOG]: { top: '#3e2723', main: '#5d4037' } // 나무
+  };
+
+  // 월드 데이터 (2D 배열)
+  let world = [];
+  
+  // 시점 이동 상태
+  let viewX = 0;
+  let viewY = 0;
+  let isDragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+
+  // 블록 수 (간단한 인벤토리)
+  let blockCount = 0;
+
+  // 1. 월드 생성 (간단한 지형 생성)
+  function generateWorld() {
+    world = Array(WORLD_HEIGHT).fill().map(() => Array(WORLD_WIDTH).fill(BLOCKS.AIR));
+
+    // 지형 윤곽 생성 (사인 파)
+    const midHeight = Math.floor(WORLD_HEIGHT / 2);
+    for (let x = 0; x < WORLD_WIDTH; x++) {
+      const height = midHeight + Math.floor(Math.sin(x * 0.1) * 5); // 굴곡
+      
+      for (let y = WORLD_HEIGHT - 1; y >= height; y--) {
+        if (y === height) {
+          world[y][x] = BLOCKS.GRASS;
+        } else if (y < height + 4) {
+          world[y][x] = BLOCKS.DIRT;
+        } else {
+          // 돌 및 광석 생성
+          if (Math.random() < 0.05) { // 5% 확률로 석탄
+            world[y][x] = BLOCKS.COAL_ORE;
+          } else {
+            world[y][x] = BLOCKS.STONE;
+          }
+        }
+      }
+    }
+  }
+
+  // 2. 블록 그리기 함수
+  function drawBlock(ctx, blockType, x, y, width, height) {
+    if (blockType === BLOCKS.AIR) return; // 공기는 그리지 않음
+
+    const style = BLOCK_STYLES[blockType];
+    
+    // 블록 본체 그리기
+    ctx.fillStyle = style.main;
+    ctx.fillRect(x, y, width, height);
+    
+    // 블록 윗부분 (하이라이트) 그리기
+    ctx.fillStyle = style.top;
+    ctx.fillRect(x, y, width, height * 0.15); // 상단 15%
+
+    // 광석 점박이 그리기
+    if (style.speck) {
+      ctx.fillStyle = style.speck;
+      const speckSize = width * 0.1;
+      for (let i = 0; i < 5; i++) {
+        const speckX = x + Math.random() * (width - speckSize);
+        const speckY = y + Math.random() * (height - speckSize);
+        ctx.fillRect(speckX, speckY, speckSize, speckSize);
+      }
+    }
+  }
+
+  // 3. 마우스 이벤트 핸들러
+  canvas.addEventListener('mousedown', e => {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left - viewX;
+    const mouseY = e.clientY - rect.top - viewY;
+    const blockX = Math.floor(mouseX / BLOCK_SIZE);
+    const blockY = Math.floor(mouseY / BLOCK_SIZE);
+
+    // 좌표가 월드 범위 내인지 확인
+    if (blockX >= 0 && blockX < WORLD_WIDTH && blockY >= 0 && blockY < WORLD_HEIGHT) {
+      if (e.button === 0) { // 왼쪽 클릭 (채굴)
+        if (e.shiftKey) { // Shift + 왼쪽 클릭 (블록 설치)
+          if (world[blockY][blockX] === BLOCKS.AIR) { // 빈 공간에만
+            world[blockY][blockX] = BLOCKS.DIRT; // 우선 흙 블록 설치
+            blockCount++; // 블록 추가
+          }
+        } else { // Shift 없이 왼쪽 클릭 (블록 파괴)
+          if (world[blockY][blockX] !== BLOCKS.AIR) { // 블록이 있는 곳에만
+            world[blockY][blockX] = BLOCKS.AIR; // 공기로 변경
+            // 블록 제거
+          }
+        }
+      }
+    } else if (e.button === 2) { // 오른쪽 클릭 (시점 이동 시작)
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+    }
+    blockCountEl.innerText = blockCount;
+  });
+
+  window.addEventListener('mousemove', e => {
+    if (isDragging) {
+      viewX += (e.clientX - dragStartX);
+      viewY += (e.
