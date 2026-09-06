@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>HTML5 너구리 게임 (미니)</title>
+    <style>
+        body {
+            background-color: #222;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            color: white;
+            font-family: sans-serif;
+            flex-direction: column;
+        }
+        #gameContainer {
+            position: relative;
+        }
+        canvas {
+            border: 4px solid #fff;
+            background-color: #000;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 20px;
+            font-weight: bold;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="ui">Score: <span id="score">0</span></div>
+    </div>
+    <div style="margin-top:15px;">조작: 화살표 키 (이동), 스페이스바 (점프)</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+
+    // 게임 상수 및 상태
+    const GRAVITY = 0.8;
+    let score = 0;
+    let isGameOver = false;
+    let isWin = false;
+
+    // 키보드 입력 상태
+    const keys = { right: false, left: false, up: false, down: false, space: false };
+
+    // 1. 맵 데이터 (플랫폼 및 사다리 위치)
+    // type 1: 바닥, type 2: 사다리
+    const platforms = [
+        // 바닥층들
+        { x: 0, y: 580, width: 800, height: 20, type: 1 }, // 최하단
+        { x: 50, y: 480, width: 700, height: 20, type: 1 },
+        { x: 0, y: 380, width: 650, height: 20, type: 1 },
+        { x: 150, y: 280, width: 650, height: 20, type: 1 },
+        { x: 0, y: 180, width: 500, height: 20, type: 1 },
+        { x: 0, y: 80, width: 800, height: 20, type: 1 }, // 최상단
+
+        // 사다리들 (바닥과 바닥을 연결)
+        { x: 650, y: 480, width: 40, height: 100, type: 2 },
+        { x: 100, y: 380, width: 40, height: 100, type: 2 },
+        { x: 550, y: 280, width: 40, height: 100, type: 2 },
+        { x: 200, y: 180, width: 40, height: 100, type: 2 },
+        { x: 700, y: 80, width: 40, height: 100, type: 2 }
+    ];
+
+    // 2. 플레이어 (너구리) 객체
+    const player = {
+        x: 50,
+        y: 530, // 최하단 바닥 위
+        width: 30,
+        height: 50,
+        dx: 0,
+        dy: 0,
+        speed: 5,
+        jumpPower: -15,
+        onGround: false,
+        onLadder: false,
+        isClimbing: false,
+        color: '#ff922b' // 너구리 색상
+    };
+
+    // 3. 아이템 (압정) 및 적 (뱀) 데이터
+    let items = [
+        { x: 200, y: 550, width: 15, height: 15, collected: false },
+        { x: 400, y: 450, width: 15, height: 15, collected: false },
+        { x: 600, y: 450, width: 15, height: 15, collected: false },
+        { x: 300, y: 350, width: 15, height: 15, collected: false },
+        { x: 100, y: 250, width: 15, height: 15, collected: false },
+        { x: 500, y: 250, width: 15, height: 15, collected: false },
+        { x: 600, y: 150, width: 15, height: 15, collected: false },
+        { x: 200, y: 50, width: 15, height: 15, collected: false },
+        { x: 400, y: 50, width: 15, height: 15, collected: false }
+    ];
+
+    // 적 (뱀) - 간단하게 플랫폼 위를 왕복
+    let enemies = [
+        { x: 300, y: 455, width: 40, height: 25, speed: 3, range: 200, startX: 300, color: '#51cf66' },
+        { x: 200, y: 255, width: 40, height: 25, speed: -2, range: 300, startX: 200, color: '#51cf66' }
+    ];
+
+    // 키보드 이벤트 리스너
+    document.addEventListener('keydown', e => {
+        if (isGameOver || isWin) return;
