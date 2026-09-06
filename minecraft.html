@@ -2,43 +2,48 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>2D 마인크래프트 미니</title>
+  <title>2D 마인크래프트 (DOM 버전)</title>
   <style>
     * { box-sizing: border-box; }
     body {
       background-color: #1e293b;
       display: flex;
       flex-direction: column;
-      justify-content: center;
       align-items: center;
+      justify-content: center;
       min-height: 100vh;
       margin: 0;
-      color: #f8fafc;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       user-select: none;
-      overflow: hidden;
-    }
-    #gameWrapper {
-      position: relative;
-      display: inline-block;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-    }
-    canvas {
-      display: block;
-      border: 3px solid #f1f5f9;
-      background-color: #60a5fa; /* 기본 하늘색 배경 */
-      cursor: crosshair;
     }
     #hud {
-      position: absolute;
-      top: 12px;
-      left: 14px;
-      font-size: 1.15rem;
-      font-weight: 700;
-      color: #ffffff;
-      text-shadow: 0 2px 4px rgba(0,0,0,0.8);
-      pointer-events: none;
+      margin-bottom: 12px;
+      font-size: 1.2rem;
+      font-weight: bold;
+      color: #f8fafc;
     }
+    #gameGrid {
+      display: grid;
+      grid-template-columns: repeat(25, 24px);
+      grid-template-rows: repeat(18, 24px);
+      gap: 1px;
+      background-color: #334155;
+      border: 4px solid #f1f5f9;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+    .tile {
+      width: 24px;
+      height: 24px;
+      cursor: pointer;
+    }
+    /* 블록 스타일 */
+    .air   { background-color: #60a5fa; }
+    .grass { background-color: #22c55e; border-bottom: 3px solid #15803d; }
+    .dirt  { background-color: #854d0e; }
+    .stone { background-color: #64748b; }
+    .coal  { background-color: #0f172a; }
+    .wood  { background-color: #451a03; }
+    
     .guide {
       margin-top: 14px;
       font-size: 0.95rem;
@@ -48,120 +53,66 @@
 </head>
 <body>
 
-  <div id="gameWrapper">
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
-    <div id="hud">보유 블록: <span id="blockCount">0</span>개</div>
-  </div>
-  <div class="guide">조작: [클릭] 블록 파괴 | [Shift + 클릭] 블록 설치 | [우클릭 드래그] 화면 이동</div>
+  <div id="hud">보유 블록: <span id="blockCount">5</span>개</div>
+  <div id="gameGrid"></div>
+  <div class="guide">조작: [클릭] 블록 채굴 | [Shift + 클릭] 블록 설치</div>
 
   <script>
-    window.addEventListener('DOMContentLoaded', () => {
-      const canvas = document.getElementById('gameCanvas');
-      const ctx = canvas.getContext('2d');
-      const blockCountEl = document.getElementById('blockCount');
+    (function () {
+      const COLS = 25;
+      const ROWS = 18;
+      const grid = document.getElementById('gameGrid');
+      const hud = document.getElementById('blockCount');
 
-      const BLOCK_SIZE = 32;
-      const WORLD_WIDTH = 40;  // 40 * 32 = 1280px 넓은 월드
-      const WORLD_HEIGHT = 25; // 25 * 32 = 800px
+      let blocks = 5;
+      const map = [];
 
-      // 블록 ID
-      const AIR = 0;
-      const DIRT = 1;
-      const GRASS = 2;
-      const STONE = 3;
-      const COAL = 4;
-      const WOOD = 5;
+      for (let r = 0; r < ROWS; r++) {
+        map[r] = [];
+        for (let c = 0; c < COLS; c++) {
+          let type = 'air';
+          const surface = 8 + Math.round(Math.sin(c * 0.4) * 2);
 
-      const BLOCK_COLORS = {
-        [DIRT]:  { main: '#78350f', top: '#92400e' },
-        [GRASS]: { main: '#78350f', top: '#22c55e' },
-        [STONE]: { main: '#64748b', top: '#94a3b8' },
-        [COAL]:  { main: '#334155', top: '#1e293b' },
-        [WOOD]:  { main: '#451a03', top: '#78350f' }
-      };
+          if (r === surface) {
+            type = 'grass';
+          } else if (r > surface && r <= surface + 3) {
+            type = 'dirt';
+          } else if (r > surface + 3) {
+            type = (Math.random() < 0.2) ? 'coal' : 'stone';
+          }
 
-      let world = [];
-      let blockCount = 10; // 시작 시 블록 10개 지급
-      blockCountEl.innerText = blockCount;
+          map[r][c] = type;
 
-      let viewX = 0;
-      let viewY = 0;
-      let isDragging = false;
-      let startX = 0;
-      let startY = 0;
+          const el = document.createElement('div');
+          el.className = 'tile ' + type;
+          el.id = 'cell-' + r + '-' + c;
 
-      // 1. 지형 생성
-      function initWorld() {
-        world = [];
-        for (let y = 0; y < WORLD_HEIGHT; y++) {
-          world[y] = [];
-          for (let x = 0; x < WORLD_WIDTH; x++) {
-            // 지표면 높이 곡선 (y=10 근처)
-            const surfaceY = 10 + Math.floor(Math.sin(x * 0.3) * 3);
+          el.addEventListener('click', function (e) {
+            const cur = map[r][c];
 
-            if (y < surfaceY) {
-              world[y][x] = AIR;
-            } else if (y === surfaceY) {
-              world[y][x] = GRASS;
-            } else if (y < surfaceY + 4) {
-              world[y][x] = DIRT;
+            if (e.shiftKey) {
+              // 설치
+              if (cur === 'air' && blocks > 0) {
+                map[r][c] = 'dirt';
+                el.className = 'tile dirt';
+                blocks--;
+                hud.innerText = blocks;
+              }
             } else {
-              // 지하 암반 및 석탄 광석
-              world[y][x] = (Math.random() < 0.12) ? COAL : STONE;
+              // 채굴
+              if (cur !== 'air') {
+                map[r][c] = 'air';
+                el.className = 'tile air';
+                blocks++;
+                hud.innerText = blocks;
+              }
             }
-          }
-        }
+          });
 
-        // 지표면에 나무 생성
-        for (let x = 4; x < WORLD_WIDTH - 4; x += 8) {
-          const surfaceY = 10 + Math.floor(Math.sin(x * 0.3) * 3);
-          if (surfaceY > 3) {
-            world[surfaceY - 1][x] = WOOD;
-            world[surfaceY - 2][x] = WOOD;
-            world[surfaceY - 3][x] = WOOD;
-          }
+          grid.appendChild(el);
         }
       }
-
-      // 2. 블록 렌더링
-      function drawBlock(type, x, y) {
-        if (type === AIR) return;
-        const color = BLOCK_COLORS[type];
-        if (!color) return;
-
-        // 메인 바디
-        ctx.fillStyle = color.main;
-        ctx.fillRect(x, y, BLOCK_SIZE, BLOCK_SIZE);
-
-        // 상단 림(Rim)
-        ctx.fillStyle = color.top;
-        ctx.fillRect(x, y, BLOCK_SIZE, 6);
-
-        // 격자 외곽선
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
-        ctx.strokeRect(x, y, BLOCK_SIZE, BLOCK_SIZE);
-      }
-
-      // 3. 화면 그리기
-      function render() {
-        // 하늘 배경
-        ctx.fillStyle = '#60a5fa';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        ctx.save();
-        ctx.translate(viewX, viewY);
-
-        for (let y = 0; y < WORLD_HEIGHT; y++) {
-          for (let x = 0; x < WORLD_WIDTH; x++) {
-            drawBlock(world[y][x], x * BLOCK_SIZE, y * BLOCK_SIZE);
-          }
-        }
-
-        ctx.restore();
-        requestAnimationFrame(render);
-      }
-
-      // 4. 입력 이벤트 (채굴 / 설치 / 드래그)
-      canvas.addEventListener('mousedown', (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const clickX = e.clientX - rect.
+    })();
+  </script>
+</body>
+</html>
