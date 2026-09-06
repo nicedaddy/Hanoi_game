@@ -1,336 +1,326 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <title>HTML5 너구리 게임 (미니)</title>
-    <style>
-        body {
-            background-color: #222;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            color: white;
-            font-family: sans-serif;
-            flex-direction: column;
-        }
-        #gameContainer {
-            position: relative;
-        }
-        canvas {
-            border: 4px solid #fff;
-            background-color: #000;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
-        }
-        #ui {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            font-size: 20px;
-            font-weight: bold;
-            pointer-events: none;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>너구리 점프 게임</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      background-color: #1a1a1a;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      user-select: none;
+    }
+    #gameWrapper {
+      position: relative;
+      display: inline-block;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.6);
+    }
+    canvas {
+      display: block;
+      border: 3px solid #f1f5f9;
+      background-color: #0b0f19;
+    }
+    #hud {
+      position: absolute;
+      top: 14px;
+      left: 16px;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #f8fafc;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+      pointer-events: none;
+    }
+    .guide {
+      margin-top: 14px;
+      font-size: 0.95rem;
+      color: #94a3b8;
+    }
+  </style>
 </head>
 <body>
 
-    <div id="gameContainer">
-        <canvas id="gameCanvas" width="800" height="600"></canvas>
-        <div id="ui">Score: <span id="score">0</span></div>
-    </div>
-    <div style="margin-top:15px;">조작: 화살표 키 (이동), 스페이스바 (점프)</div>
+  <div id="gameWrapper">
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="hud">Score: <span id="scoreText">0</span></div>
+  </div>
+  <div class="guide">조작: 방향키 [←][→] 이동, [↑][↓] 사다리, [Space] 점프</div>
 
-<script>
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
-    const scoreEl = document.getElementById('score');
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+      const scoreEl = document.getElementById('scoreText');
 
-    // 게임 상수 및 상태
-    const GRAVITY = 0.8;
-    let score = 0;
-    let isGameOver = false;
-    let isWin = false;
+      const GRAVITY = 0.65;
+      let score = 0;
+      let gameOver = false;
+      let win = false;
 
-    // 키보드 입력 상태
-    const keys = { right: false, left: false, up: false, down: false, space: false };
+      const keys = { left: false, right: false, up: false, down: false, space: false };
 
-    // 1. 맵 데이터 (플랫폼 및 사다리 위치)
-    // type 1: 바닥, type 2: 사다리
-    const platforms = [
-        // 바닥층들
-        { x: 0, y: 580, width: 800, height: 20, type: 1 }, // 최하단
-        { x: 50, y: 480, width: 700, height: 20, type: 1 },
-        { x: 0, y: 380, width: 650, height: 20, type: 1 },
-        { x: 150, y: 280, width: 650, height: 20, type: 1 },
-        { x: 0, y: 180, width: 500, height: 20, type: 1 },
-        { x: 0, y: 80, width: 800, height: 20, type: 1 }, // 최상단
+      // 플랫폼 (1: 발판, 2: 사다리)
+      const platforms = [
+        { x: 0, y: 560, w: 800, h: 40, type: 1 },
+        { x: 60, y: 450, w: 680, h: 18, type: 1 },
+        { x: 0, y: 340, w: 640, h: 18, type: 1 },
+        { x: 160, y: 230, w: 640, h: 18, type: 1 },
+        { x: 0, y: 120, w: 700, h: 18, type: 1 },
 
-        // 사다리들 (바닥과 바닥을 연결)
-        { x: 650, y: 480, width: 40, height: 100, type: 2 },
-        { x: 100, y: 380, width: 40, height: 100, type: 2 },
-        { x: 550, y: 280, width: 40, height: 100, type: 2 },
-        { x: 200, y: 180, width: 40, height: 100, type: 2 },
-        { x: 700, y: 80, width: 40, height: 100, type: 2 }
-    ];
+        // 사다리
+        { x: 660, y: 450, w: 36, h: 110, type: 2 },
+        { x: 100, y: 340, w: 36, h: 110, type: 2 },
+        { x: 560, y: 230, w: 36, h: 110, type: 2 },
+        { x: 220, y: 120, w: 36, h: 110, type: 2 }
+      ];
 
-    // 2. 플레이어 (너구리) 객체
-    const player = {
-        x: 50,
-        y: 530, // 최하단 바닥 위
-        width: 30,
-        height: 50,
-        dx: 0,
-        dy: 0,
-        speed: 5,
-        jumpPower: -15,
+      // 플레이어 (너구리)
+      const player = {
+        x: 40,
+        y: 500,
+        w: 28,
+        h: 36,
+        vx: 0,
+        vy: 0,
+        speed: 4,
+        jump: -12.5,
         onGround: false,
         onLadder: false,
-        isClimbing: false,
-        color: '#ff922b' // 너구리 색상
-    };
+        climbing: false
+      };
 
-    // 3. 아이템 (압정) 및 적 (뱀) 데이터
-    let items = [
-        { x: 200, y: 550, width: 15, height: 15, collected: false },
-        { x: 400, y: 450, width: 15, height: 15, collected: false },
-        { x: 600, y: 450, width: 15, height: 15, collected: false },
-        { x: 300, y: 350, width: 15, height: 15, collected: false },
-        { x: 100, y: 250, width: 15, height: 15, collected: false },
-        { x: 500, y: 250, width: 15, height: 15, collected: false },
-        { x: 600, y: 150, width: 15, height: 15, collected: false },
-        { x: 200, y: 50, width: 15, height: 15, collected: false },
-        { x: 400, y: 50, width: 15, height: 15, collected: false }
-    ];
+      // 아이템
+      const items = [
+        { x: 220, y: 530, w: 14, h: 14, collected: false },
+        { x: 420, y: 420, w: 14, h: 14, collected: false },
+        { x: 260, y: 310, w: 14, h: 14, collected: false },
+        { x: 520, y: 200, w: 14, h: 14, collected: false },
+        { x: 120, y: 90,  w: 14, h: 14, collected: false },
+        { x: 500, y: 90,  w: 14, h: 14, collected: false }
+      ];
 
-    // 적 (뱀) - 간단하게 플랫폼 위를 왕복
-    let enemies = [
-        { x: 300, y: 455, width: 40, height: 25, speed: 3, range: 200, startX: 300, color: '#51cf66' },
-        { x: 200, y: 255, width: 40, height: 25, speed: -2, range: 300, startX: 200, color: '#51cf66' }
-    ];
+      // 적 (장애물)
+      const enemies = [
+        { x: 260, y: 432, w: 26, h: 18, vx: 2, minX: 200, maxX: 450 },
+        { x: 340, y: 212, w: 26, h: 18, vx: -2, minX: 240, maxX: 500 }
+      ];
 
-    // 키보드 이벤트 리스너
-    document.addEventListener('keydown', e => {
-        if (isGameOver || isWin) return;
-        if (e.key === 'ArrowRight') keys.right = true;
+      window.addEventListener('keydown', (e) => {
+        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " "].includes(e.key)) {
+          e.preventDefault(); // 스크롤 방지
+        }
         if (e.key === 'ArrowLeft') keys.left = true;
+        if (e.key === 'ArrowRight') keys.right = true;
         if (e.key === 'ArrowUp') keys.up = true;
         if (e.key === 'ArrowDown') keys.down = true;
-        if (e.key === ' ' && player.onGround && !player.isClimbing) {
-            player.dy = player.jumpPower;
+        if (e.key === ' ' || e.key === 'Spacebar') {
+          if (player.onGround && !player.climbing) {
+            player.vy = player.jump;
             player.onGround = false;
+          }
         }
-    });
+        if ((gameOver || win) && (e.key === 'r' || e.key === 'R')) {
+          resetGame();
+        }
+      });
 
-    document.addEventListener('keyup', e => {
-        if (e.key === 'ArrowRight') keys.right = false;
+      window.addEventListener('keyup', (e) => {
         if (e.key === 'ArrowLeft') keys.left = false;
+        if (e.key === 'ArrowRight') keys.right = false;
         if (e.key === 'ArrowUp') keys.up = false;
         if (e.key === 'ArrowDown') keys.down = false;
-    });
+      });
 
-    // 충돌 감지 함수 (AABB)
-    function checkCollision(obj1, obj2) {
-        return obj1.x < obj2.x + obj2.width &&
-               obj1.x + obj1.width > obj2.x &&
-               obj1.y < obj2.y + obj2.height &&
-               obj1.y + obj1.height > obj2.y;
-    }
+      function checkOverlap(a, b) {
+        return a.x < b.x + (b.w || b.width) &&
+               a.x + (a.w || a.width) > b.x &&
+               a.y < b.y + (b.h || b.height) &&
+               a.y + (a.h || a.height) > b.y;
+      }
 
-    // 게임 업데이트 로직
-    function update() {
-        if (isGameOver || isWin) return;
+      function resetGame() {
+        score = 0;
+        scoreEl.innerText = score;
+        gameOver = false;
+        win = false;
+        player.x = 40;
+        player.y = 500;
+        player.vx = 0;
+        player.vy = 0;
+        items.forEach(i => i.collected = false);
+      }
 
-        // 가로 이동
-        if (keys.right) player.dx = player.speed;
-        else if (keys.left) player.dx = -player.speed;
-        else player.dx = 0;
+      function update() {
+        if (gameOver || win) return;
 
-        // 사다리 충돌 확인
+        // 좌우 이동
+        if (keys.left) player.vx = -player.speed;
+        else if (keys.right) player.vx = player.speed;
+        else player.vx = 0;
+
+        // 사다리 충돌 감지
         player.onLadder = false;
         for (let p of platforms) {
-            if (p.type === 2 && checkCollision(player, p)) {
-                player.onLadder = true;
-                break;
-            }
+          if (p.type === 2 && checkOverlap(player, p)) {
+            player.onLadder = true;
+            break;
+          }
         }
 
-        // 사다리 오르내리기 처리
+        // 사다리 이동 로직
         if (player.onLadder) {
-            if (keys.up) {
-                player.dy = -player.speed;
-                player.isClimbing = true;
-            } else if (keys.down) {
-                player.dy = player.speed;
-                player.isClimbing = true;
-            } else {
-                // 사다리 위에서 멈춤
-                if (player.isClimbing) player.dy = 0;
-            }
+          if (keys.up) {
+            player.vy = -player.speed * 0.7;
+            player.climbing = true;
+          } else if (keys.down) {
+            player.vy = player.speed * 0.7;
+            player.climbing = true;
+          } else if (player.climbing) {
+            player.vy = 0;
+          }
         } else {
-            player.isClimbing = false;
+          player.climbing = false;
         }
 
-        // 중력 적용 (사다리 타는 중이 아닐 때만)
-        if (!player.isClimbing) {
-            player.dy += GRAVITY;
+        // 중력 가속도
+        if (!player.climbing) {
+          player.vy += GRAVITY;
         }
 
-        // 위치 업데이트
-        player.x += player.dx;
-        player.y += player.dy;
+        player.x += player.vx;
+        player.y += player.vy;
 
-        // 화면 중중 처리
+        // 화면 경계 제한
         if (player.x < 0) player.x = 0;
-        if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+        if (player.x + player.w > canvas.width) player.x = canvas.width - player.w;
 
-        // 플랫폼 충돌 및 바닥 처리
+        // 플랫폼 바닥 충돌
         player.onGround = false;
         for (let p of platforms) {
-            if (p.type === 1) { // 바닥
-                // 내려오는 중이고, 바닥에 닿았을 때
-                if (player.dy >= 0 &&
-                    player.x + player.width > p.x &&
-                    player.x < p.x + p.width &&
-                    player.y + player.height > p.y &&
-                    player.y + player.height < p.y + p.height + player.dy) {
-                    
-                    // 사다리 타는 중이거나 막 사다리에서 내렸을 때 바닥 통과 방지
-                    if (!keys.down) {
-                        player.y = p.y - player.height;
-                        player.dy = 0;
-                        player.onGround = true;
-                        player.isClimbing = false;
-                    }
-                }
+          if (p.type === 1) {
+            if (player.vy >= 0 &&
+                player.x + player.w > p.x &&
+                player.x < p.x + p.w &&
+                player.y + player.h >= p.y &&
+                player.y + player.h <= p.y + p.h + player.vy) {
+              
+              if (!keys.down || !player.onLadder) {
+                player.y = p.y - player.h;
+                player.vy = 0;
+                player.onGround = true;
+                player.climbing = false;
+              }
             }
+          }
         }
 
-        // 최상단 바닥 위로 올라갔을 때 추락 방지
-        if (player.y < 0) player.y = 0;
-
-        // 아이템 수집
+        // 아이템 획득
         items.forEach(item => {
-            if (!item.collected && checkCollision(player, item)) {
-                item.collected = true;
-                score += 100;
-                scoreEl.innerText = score;
-            }
+          if (!item.collected && checkOverlap(player, item)) {
+            item.collected = true;
+            score += 100;
+            scoreEl.innerText = score;
+          }
         });
 
-        // 승리 조건 확인 (모든 아이템 수집)
-        if (items.every(item => item.collected)) {
-            isWin = true;
+        if (items.every(i => i.collected)) {
+          win = true;
         }
 
-        // 적 업데이트 및 충돌
-        enemies.forEach(enemy => {
-            // 적 이동
-            enemy.x += enemy.speed;
-            if (Math.abs(enemy.x - enemy.startX) > enemy.range) {
-                enemy.speed *= -1;
-            }
-
-            // 적과 충돌 시 게임 오버
-            if (checkCollision(player, enemy)) {
-                isGameOver = true;
-            }
+        // 적 업데이트
+        enemies.forEach(e => {
+          e.x += e.vx;
+          if (e.x < e.minX || e.x > e.maxX) e.vx *= -1;
+          if (checkOverlap(player, e)) {
+            gameOver = true;
+          }
         });
-    }
+      }
 
-    // 화면 그리기 로직
-    function draw() {
+      function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // 플랫폼 그리기
+        // 지형지물
         platforms.forEach(p => {
-            if (p.type === 1) {
-                ctx.fillStyle = '#868e96'; // 바닥 색
-                ctx.fillRect(p.x, p.y, p.width, p.height);
-            } else {
-                // 사다리 그리기 (스타일)
-                ctx.strokeStyle = '#fcc419'; 
-                ctx.lineWidth = 4;
-                ctx.beginPath();
-                // 왼쪽 기둥
-                ctx.moveTo(p.x + 8, p.y); ctx.lineTo(p.x + 8, p.y + p.height);
-                // 오른쪽 기둥
-                ctx.moveTo(p.x + p.width - 8, p.y); ctx.lineTo(p.x + p.width - 8, p.y + p.height);
-                // 발판들
-                for (let i = 10; i < p.height; i += 20) {
-                    ctx.moveTo(p.x + 8, p.y + i); ctx.lineTo(p.x + p.width - 8, p.y + i);
-                }
-                ctx.stroke();
+          if (p.type === 1) {
+            ctx.fillStyle = '#475569';
+            ctx.fillRect(p.x, p.y, p.w, p.h);
+          } else {
+            // 사다리
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(p.x, p.y, p.w, p.h);
+            for (let step = p.y + 12; step < p.y + p.h; step += 14) {
+              ctx.beginPath();
+              ctx.moveTo(p.x, step);
+              ctx.lineTo(p.x + p.w, step);
+              ctx.stroke();
             }
+          }
         });
 
-        // 아이템(압정) 그리기
+        // 아이템 (노란 보석)
         items.forEach(item => {
-            if (!item.collected) {
-                ctx.fillStyle = '#ff6b6b';
-                ctx.beginPath();
-                ctx.moveTo(item.x + item.width/2, item.y);
-                ctx.lineTo(item.x, item.y + item.height);
-                ctx.lineTo(item.x + item.width, item.y + item.height);
-                ctx.fill();
-            }
+          if (!item.collected) {
+            ctx.fillStyle = '#facc15';
+            ctx.fillRect(item.x, item.y, item.w, item.h);
+          }
         });
 
-        // 적(뱀) 그리기
-        enemies.forEach(enemy => {
-            ctx.fillStyle = enemy.color;
-            ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
-            // 눈 그리기
-            ctx.fillStyle = 'white';
-            ctx.fillRect(enemy.x + (enemy.speed > 0 ? 30 : 5), enemy.y + 5, 5, 5);
+        // 장애물 (보라색 몬스터)
+        enemies.forEach(e => {
+          ctx.fillStyle = '#a855f7';
+          ctx.fillRect(e.x, e.y, e.w, e.h);
         });
 
-        // 플레이어(너구리) 그리기 (간단한 형태)
-        ctx.fillStyle = player.color;
-        // 몸통
-        ctx.fillRect(player.x, player.y, player.width, player.height);
-        // 귀
-        ctx.fillRect(player.x, player.y - 10, 10, 10);
-        ctx.fillRect(player.x + player.width - 10, player.y - 10, 10, 10);
-        // 눈
-        ctx.fillStyle = '#000';
-        ctx.fillRect(player.x + 5, player.y + 10, 8, 8);
-        ctx.fillRect(player.x + player.width - 13, player.y + 10, 8, 8);
+        // 플레이어 (오렌지색 너구리 캐릭터)
+        ctx.fillStyle = '#ea580c';
+        ctx.fillRect(player.x, player.y, player.w, player.h);
 
-        // 게임 오버 / 승리 메시지
-        if (isGameOver) {
-            ctx.fillStyle = 'rgba(0,0,0,0.7)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#ff6b6b';
-            ctx.font = '60px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2);
-            ctx.fillStyle = 'white';
-            ctx.font = '20px sans-serif';
-            ctx.fillText('F5를 눌러 다시 시작', canvas.width / 2, canvas.height / 2 + 40);
-        } else if (isWin) {
-            ctx.fillStyle = 'rgba(0,0,0,0.7)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#51cf66';
-            ctx.font = '60px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText('YOU WIN!', canvas.width / 2, canvas.height / 2);
-            ctx.fillStyle = 'white';
-            ctx.font = '30px sans-serif';
-            ctx.fillText(`Final Score: ${score}`, canvas.width / 2, canvas.height / 2 + 50);
+        // 눈 표시 (방향 식별용)
+        ctx.fillStyle = '#fff';
+        const eyeOffset = player.vx < 0 ? 4 : (player.w - 10);
+        ctx.fillRect(player.x + eyeOffset, player.y + 8, 6, 6);
+
+        // 상태 메시지
+        if (gameOver) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#ef4444';
+          ctx.font = 'bold 44px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 10);
+          ctx.font = '20px sans-serif';
+          ctx.fillStyle = '#e2e8f0';
+          ctx.fillText('[R] 키를 눌러 다시 시작', canvas.width / 2, canvas.height / 2 + 35);
+        } else if (win) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#22c55e';
+          ctx.font = 'bold 44px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('STAGE CLEAR!', canvas.width / 2, canvas.height / 2 - 10);
+          ctx.font = '20px sans-serif';
+          ctx.fillStyle = '#e2e8f0';
+          ctx.fillText('[R] 키를 눌러 재도전', canvas.width / 2, canvas.height / 2 + 35);
         }
-    }
+      }
 
-    // 게임 루프
-    function gameLoop() {
+      function loop() {
         update();
         draw();
-        requestAnimationFrame(gameLoop);
-    }
+        requestAnimationFrame(loop);
+      }
 
-    // 게임 시작
-    gameLoop();
-
-</script>
+      // 렌더링 루프 시작
+      requestAnimationFrame(loop);
+    });
+  </script>
 </body>
 </html>
